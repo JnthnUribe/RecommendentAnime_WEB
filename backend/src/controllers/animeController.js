@@ -1,17 +1,18 @@
-const pool = require('../config/db'); // Importa la conexión a la DB
+const pool = require('../config/db');
 
-// Obtener todos los animes guardados por el usuario
+// Obtener todos los animes guardados
 exports.getSavedAnimes = async (req, res) => {
   try {
-    // Gracias al middleware, tenemos 'req.user.id'
-    const userId = req.user.id; 
+    const userId = req.user.id;
     
-    const [animes] = await pool.query(
-      'SELECT * FROM saved_animes WHERE user_id = ? ORDER BY id DESC', 
+    // POSTGRESQL: Usamos $1
+    const result = await pool.query(
+      'SELECT * FROM saved_animes WHERE user_id = $1 ORDER BY id DESC', 
       [userId]
     );
 
-    res.json(animes);
+    // POSTGRESQL: Devolvemos result.rows
+    res.json(result.rows);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error en el servidor al obtener animes.' });
@@ -22,22 +23,21 @@ exports.getSavedAnimes = async (req, res) => {
 exports.saveAnime = async (req, res) => {
   try {
     const userId = req.user.id;
-    // Datos que vendrán del frontend (cuando el user guarda una recomendación)
     const { mal_id, title, image_url, synopsis } = req.body;
 
-    // Validación simple
     if (!mal_id || !title) {
       return res.status(400).json({ message: 'mal_id y title son requeridos.' });
     }
 
-    const [result] = await pool.query(
-      'INSERT INTO saved_animes (user_id, mal_id, title, image_url, synopsis) VALUES (?, ?, ?, ?, ?)',
+    // POSTGRESQL: Usamos $1...$5 Y agregamos "RETURNING id" al final
+    // Esto es necesario porque Postgres no devuelve el ID automáticamente como MySQL
+    const result = await pool.query(
+      'INSERT INTO saved_animes (user_id, mal_id, title, image_url, synopsis) VALUES ($1, $2, $3, $4, $5) RETURNING id',
       [userId, mal_id, title, image_url || null, synopsis || null]
     );
     
-    // Devolvemos el objeto recién creado
     res.status(201).json({
-      id: result.insertId,
+      id: result.rows[0].id, // Así obtenemos el ID nuevo en Postgres
       user_id: userId,
       mal_id,
       title,
@@ -46,8 +46,8 @@ exports.saveAnime = async (req, res) => {
     });
 
   } catch (error) {
-    // Manejo de error para duplicados (definimos un UNIQUE en la DB)
-    if (error.code === 'ER_DUP_ENTRY') {
+    // El código de error de duplicado en Postgres es '23505'
+    if (error.code === '23505') {
       return res.status(409).json({ message: 'Ya has guardado este anime.' });
     }
     console.error(error);
@@ -55,23 +55,22 @@ exports.saveAnime = async (req, res) => {
   }
 };
 
-// Actualizar un anime (rating, estado, notas)
+// Actualizar un anime
 exports.updateAnime = async (req, res) => {
   try {
     const userId = req.user.id;
-    const animeId = req.params.id; // El ID del anime EN NUESTRA DB (no el mal_id)
+    const animeId = req.params.id;
     const { user_status, user_rating, user_notes } = req.body;
 
-    // Esta consulta es SEGURA: solo actualiza si el 'id' del anime
-    // Y el 'user_id' coinciden. Un usuario no puede borrar el anime de otro.
-    const [result] = await pool.query(
-      'UPDATE saved_animes SET user_status = ?, user_rating = ?, user_notes = ? WHERE id = ? AND user_id = ?',
+    // POSTGRESQL: Sintaxis $1, $2...
+    const result = await pool.query(
+      'UPDATE saved_animes SET user_status = $1, user_rating = $2, user_notes = $3 WHERE id = $4 AND user_id = $5',
       [user_status, user_rating, user_notes, animeId, userId]
     );
 
-    // affectedRows nos dice si algo se actualizó
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Anime no encontrado o no autorizado para este usuario.' });
+    // En Postgres verificamos rowCount
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Anime no encontrado o no autorizado.' });
     }
 
     res.json({ message: 'Anime actualizado exitosamente.' });
@@ -85,16 +84,15 @@ exports.updateAnime = async (req, res) => {
 exports.deleteAnime = async (req, res) => {
   try {
     const userId = req.user.id;
-    const animeId = req.params.id; // El ID del anime EN NUESTRA DB
+    const animeId = req.params.id;
 
-    // Misma lógica de seguridad que en UPDATE
-    const [result] = await pool.query(
-      'DELETE FROM saved_animes WHERE id = ? AND user_id = ?',
+    const result = await pool.query(
+      'DELETE FROM saved_animes WHERE id = $1 AND user_id = $2',
       [animeId, userId]
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Anime no encontrado o no autorizado para este usuario.' });
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Anime no encontrado o no autorizado.' });
     }
 
     res.json({ message: 'Anime eliminado exitosamente.' });
