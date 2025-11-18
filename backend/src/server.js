@@ -15,10 +15,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- Middlewares ---
-const corsOptions = {
-  origin: 'http://localhost:4200'
-};
-app.use(cors(corsOptions));
+// Borra 'corsOptions' y deja cors() vacío.
+// Esto permite que CUALQUIER origen se conecte (perfecto para evitar errores).
+app.use(cors()); 
 app.use(express.json());
 
 // --- Rutas de la API ---
