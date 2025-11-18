@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const animeController = require('../controllers/animeController');
 
-// --- RUTAS PÚBLICAS (Sin protección) ---
+// --- IMPORTANTE: NO DEBE HABER NINGÚN 'authMiddleware' AQUÍ ---
 
 // GET /api/animes
 router.get('/', animeController.getSavedAnimes);
